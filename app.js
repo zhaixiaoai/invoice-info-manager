@@ -9,9 +9,9 @@
 
   const $ = (id) => document.getElementById(id);
   const appPage = $("appPage"), loginScreen = $("loginScreen"), loginForm = $("loginForm");
-  const loginError = $("loginError"), editor = $("editor"), form = $("companyForm"), modalError = $("modalError");
+  const loginError = $("loginError"), editor = $("editor"), form = $("companyForm");
   const listEl = $("companyList"), searchInput = $("searchInput"), countText = $("countText");
-  const syncText = $("syncText"), importFile = $("importFile"), viewBanner = $("viewBanner");
+  const syncText = $("syncText"), importFile = $("importFile"), viewBanner = $("viewBanner"), viewBannerText = $("viewBannerText");
   const fields = { companyName: $("companyName"), taxNo: $("taxNo"), address: $("address"), phone: $("phone"), bankName: $("bankName"), bankAccount: $("bankAccount"), remark: $("remark") };
 
   async function api(path, options = {}) {
@@ -66,8 +66,10 @@
 
   function render() {
     const filtered = filteredRecords();
-    countText.textContent = searchInput.value.trim() ? `找到${filtered.length}家公司` : `${recycleView ? "回收站" : "共"}${records.length}家公司`;
-    viewBanner.hidden = !recycleView;
+    countText.textContent = searchInput.value.trim() ? `找到${filtered.length}家公司` : `${recycleView ? "回收站共" : "共"}${records.length}家公司`;
+    viewBanner.hidden = false;
+    viewBannerText.textContent = recycleView ? "当前正在查看回收站，删除的数据仍保存在云数据库中。" : "当前正在查看公司列表。";
+    $("backBtn").textContent = recycleView ? "返回公司列表" : "查看回收站";
     $("trashBtn").hidden = recycleView; $("addBtn").disabled = recycleView;
     if (!filtered.length) {
       listEl.innerHTML = `<div class="empty-state"><div class="empty-symbol">票</div><h2 class="empty-title">${recycleView ? "回收站为空" : records.length ? "没有找到匹配的公司" : "还没有录入开票信息"}</h2><p class="empty-desc">${recycleView ? "删除的公司资料会暂时保留在这里。" : records.length ? "请尝试更换公司名称、税号或银行关键词。" : "点击右上角「新增开票信息」开始录入。"}</p></div>`;
@@ -87,27 +89,17 @@
     if (action === "copy") copyRecord(item);
   });
 
-  function clearModalError() {
-    modalError.textContent = "";
-    modalError.hidden = true;
-  }
-  function showModalError(message) {
-    modalError.textContent = message;
-    modalError.hidden = false;
-    editor.scrollTo({ top: 0, behavior: "smooth" });
-  }
   function openEditor(record = null) {
     editingId = record?.id || null; editingVersion = record?.version || null; formDirty = false;
-    clearModalError();
     $("modalTitle").textContent = record ? "编辑开票信息" : "新增开票信息";
     Object.keys(fields).forEach((key) => fields[key].value = record?.[key] || "");
     editor.showModal(); setTimeout(() => fields.companyName.focus(), 40);
   }
-  function closeEditor() { editor.close(); form.reset(); clearModalError(); editingId = null; editingVersion = null; formDirty = false; }
+  function closeEditor() { editor.close(); form.reset(); editingId = null; editingVersion = null; formDirty = false; }
   $("addBtn").addEventListener("click", () => openEditor());
   $("closeBtn").addEventListener("click", () => { if (!formDirty || confirm("当前填写内容尚未保存，确定关闭吗？")) closeEditor(); });
   editor.addEventListener("cancel", (event) => event.preventDefault());
-  form.addEventListener("input", () => { formDirty = true; clearModalError(); });
+  form.addEventListener("input", () => formDirty = true);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -115,13 +107,9 @@
     if (editingId) { payload.id = editingId; payload.version = editingVersion; }
     const saveBtn = $("saveBtn"); saveBtn.disabled = true; saveBtn.textContent = "正在保存…";
     try {
-      clearModalError();
-      const result = await api("/api/companies", { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      closeEditor(); await loadRecords(); showToast(result.restored ? "已恢复原记录并同步到云端" : "已保存并同步到云端");
-    } catch (error) {
-      showModalError(error.message);
-      if (error.status === 409 && editingId) await loadRecords();
-    }
+      await api("/api/companies", { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      closeEditor(); await loadRecords(); showToast("已保存并同步到云端");
+    } catch (error) { showToast(error.status === 409 ? `${error.message}，已为你刷新列表` : error.message); if (error.status === 409) await loadRecords(); }
     finally { saveBtn.disabled = false; saveBtn.textContent = "保存信息"; }
   });
 

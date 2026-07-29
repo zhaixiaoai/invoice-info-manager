@@ -25,43 +25,6 @@ export default {
       if (request.method === "POST") {
         const body = await readJson(request);
         const item = validateCompany(body);
-
-        // 税号在数据库中全局唯一。若同税号记录位于回收站，则按“重新添加”处理：
-        // 恢复原记录并用本次填写内容更新，避免出现数据库唯一键错误。
-        const duplicateQuery = new URLSearchParams({
-          select: selectFields,
-          tax_no: `eq.${item.taxNo}`,
-          limit: "1",
-        });
-        const existingRows = await supabase(`invoice_companies?${duplicateQuery}`);
-        const existing = existingRows?.[0];
-
-        if (existing && !existing.deleted_at) {
-          throw new HttpError(409, "该统一社会信用代码已存在，请勿重复录入；可关闭弹窗后搜索并编辑原记录");
-        }
-
-        if (existing?.deleted_at) {
-          const restoreQuery = new URLSearchParams({
-            id: `eq.${existing.id}`,
-            version: `eq.${existing.version}`,
-            deleted_at: "not.is.null",
-          });
-          const rows = await supabase(`invoice_companies?${restoreQuery}`, {
-            method: "PATCH",
-            headers: { prefer: "return=representation" },
-            body: {
-              ...toDatabase(item),
-              deleted_at: null,
-              version: Number(existing.version || 1) + 1,
-              updated_by: session.actor,
-            },
-          });
-          if (!rows?.length) throw new HttpError(409, "回收站中的原记录刚刚发生变化，请刷新后重试");
-          const record = toClient(rows[0]);
-          await writeAudit({ companyId: record.id, action: "restore", actor: session.actor, snapshot: rows[0] });
-          return json({ record, restored: true }, 200);
-        }
-
         const payload = { ...toDatabase(item), created_by: session.actor, updated_by: session.actor };
         const rows = await supabase("invoice_companies", {
           method: "POST",
