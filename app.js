@@ -9,7 +9,7 @@
 
   const $ = (id) => document.getElementById(id);
   const appPage = $("appPage"), loginScreen = $("loginScreen"), loginForm = $("loginForm");
-  const loginError = $("loginError"), editor = $("editor"), form = $("companyForm");
+  const loginError = $("loginError"), editor = $("editor"), form = $("companyForm"), modalError = $("modalError");
   const listEl = $("companyList"), searchInput = $("searchInput"), countText = $("countText");
   const syncText = $("syncText"), importFile = $("importFile"), viewBanner = $("viewBanner");
   const fields = { companyName: $("companyName"), taxNo: $("taxNo"), address: $("address"), phone: $("phone"), bankName: $("bankName"), bankAccount: $("bankAccount"), remark: $("remark") };
@@ -87,17 +87,27 @@
     if (action === "copy") copyRecord(item);
   });
 
+  function clearModalError() {
+    modalError.textContent = "";
+    modalError.hidden = true;
+  }
+  function showModalError(message) {
+    modalError.textContent = message;
+    modalError.hidden = false;
+    editor.scrollTo({ top: 0, behavior: "smooth" });
+  }
   function openEditor(record = null) {
     editingId = record?.id || null; editingVersion = record?.version || null; formDirty = false;
+    clearModalError();
     $("modalTitle").textContent = record ? "编辑开票信息" : "新增开票信息";
     Object.keys(fields).forEach((key) => fields[key].value = record?.[key] || "");
     editor.showModal(); setTimeout(() => fields.companyName.focus(), 40);
   }
-  function closeEditor() { editor.close(); form.reset(); editingId = null; editingVersion = null; formDirty = false; }
+  function closeEditor() { editor.close(); form.reset(); clearModalError(); editingId = null; editingVersion = null; formDirty = false; }
   $("addBtn").addEventListener("click", () => openEditor());
   $("closeBtn").addEventListener("click", () => { if (!formDirty || confirm("当前填写内容尚未保存，确定关闭吗？")) closeEditor(); });
   editor.addEventListener("cancel", (event) => event.preventDefault());
-  form.addEventListener("input", () => formDirty = true);
+  form.addEventListener("input", () => { formDirty = true; clearModalError(); });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -105,9 +115,13 @@
     if (editingId) { payload.id = editingId; payload.version = editingVersion; }
     const saveBtn = $("saveBtn"); saveBtn.disabled = true; saveBtn.textContent = "正在保存…";
     try {
-      await api("/api/companies", { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      closeEditor(); await loadRecords(); showToast("已保存并同步到云端");
-    } catch (error) { showToast(error.status === 409 ? `${error.message}，已为你刷新列表` : error.message); if (error.status === 409) await loadRecords(); }
+      clearModalError();
+      const result = await api("/api/companies", { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      closeEditor(); await loadRecords(); showToast(result.restored ? "已恢复原记录并同步到云端" : "已保存并同步到云端");
+    } catch (error) {
+      showModalError(error.message);
+      if (error.status === 409 && editingId) await loadRecords();
+    }
     finally { saveBtn.disabled = false; saveBtn.textContent = "保存信息"; }
   });
 
