@@ -1,10 +1,19 @@
-import { verifySession } from "../lib/auth.js";
-import { json, methodNotAllowed } from "../lib/http.js";
+import { getSession } from "../lib/auth.js";
+import { handleError, json, methodNotAllowed } from "../lib/http.js";
 
 export default {
   async fetch(request) {
-    if (request.method !== "GET") return methodNotAllowed(["GET"]);
-    const session = verifySession(request);
-    return json(session ? { authenticated: true, actor: session.actor, role: session.role } : { authenticated: false });
+    try {
+      if (request.method !== "GET") return methodNotAllowed(["GET"]);
+      const session = await getSession(request);
+      return json(session ? {
+        authenticated: true,
+        actor: session.actor,
+        username: session.username,
+        role: session.role,
+      } : { authenticated: false });
+    } catch (error) {
+      return handleError(error);
+    }
   },
 };

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light" />
   <title>公司开票信息管理</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=1.4.0" />
 </head>
 <body>
   <main class="page" id="appPage" hidden>
@@ -21,6 +21,8 @@
         <div class="member-info"><span id="currentActor"></span><button id="logoutBtn" type="button">退出</button></div>
         <div class="toolbar" aria-label="页面操作">
           <button class="btn" id="refreshBtn" type="button">刷新数据</button>
+          <button class="btn" id="membersBtn" type="button" data-admin-only>成员管理</button>
+          <button class="btn" id="logsBtn" type="button" data-admin-only>访问记录</button>
           <button class="btn" id="exportBtn" type="button" data-admin-only>导出备份</button>
           <button class="btn" id="importBtn" type="button" data-admin-only>导入备份</button>
           <input type="file" id="importFile" accept="application/json" data-admin-only />
@@ -50,12 +52,12 @@
     <div class="login-card">
       <div class="login-icon">票</div>
       <h2>公司开票信息管理</h2>
-      <p>管理员使用管理口令登录；共享成员使用查看口令，只能查询和复制开票信息。</p>
+      <p>管理员填写姓名并使用管理口令；共享成员必须使用管理员分配的个人账号和个人口令。</p>
       <form id="loginForm">
-        <label>姓名或昵称</label>
-        <input id="actorInput" maxlength="30" autocomplete="name" placeholder="请输入姓名或昵称" required />
+        <label>成员账号 / 管理员姓名</label>
+        <input id="actorInput" maxlength="30" autocomplete="username" placeholder="成员输入个人账号，管理员输入姓名" required />
         <label>访问口令</label>
-        <input id="passwordInput" type="password" autocomplete="current-password" placeholder="请输入访问口令" required />
+        <input id="passwordInput" type="password" autocomplete="current-password" placeholder="请输入个人口令或管理员口令" required />
         <button class="btn primary login-submit" type="submit">进入管理工具</button>
       </form>
       <div class="login-error" id="loginError"></div>
@@ -63,11 +65,13 @@
   </section>
 
   <dialog id="editor" aria-labelledby="modalTitle">
-    <div class="modal-header">
-      <div><div class="modal-title" id="modalTitle">新增开票信息</div><div class="modal-subtitle">请按照营业执照及银行资料准确填写</div></div>
-      <button class="close-button" id="closeBtn" type="button" aria-label="关闭">×</button>
+    <div class="modal-top">
+      <div class="modal-header">
+        <div><div class="modal-title" id="modalTitle">新增开票信息</div><div class="modal-subtitle">请按照营业执照及银行资料准确填写</div></div>
+        <button class="close-button" id="closeBtn" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-error" id="modalError" role="alert" aria-live="assertive" tabindex="-1" hidden></div>
     </div>
-    <div class="modal-error" id="modalError" role="alert" aria-live="assertive" hidden></div>
     <form id="companyForm">
       <div class="form-grid">
         <div class="field full"><label for="companyName">公司名称 <span class="required">*</span></label><input id="companyName" maxlength="100" required placeholder="请输入完整公司名称" /></div>
@@ -82,7 +86,40 @@
     </form>
   </dialog>
 
+  <dialog id="membersDialog" class="manage-dialog" aria-labelledby="membersTitle">
+    <div class="modal-top">
+      <div class="modal-header">
+        <div><div class="modal-title" id="membersTitle">共享成员管理</div><div class="modal-subtitle">每人使用独立账号；停用后，该成员已登录的设备也会立即失效</div></div>
+        <button class="close-button" id="membersCloseBtn" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-error" id="memberError" role="alert" aria-live="assertive" hidden></div>
+    </div>
+    <form id="memberForm" class="member-create-form">
+      <div class="field"><label for="memberUsername">成员账号 <span class="required">*</span></label><input id="memberUsername" maxlength="30" required placeholder="例如：zhangsan 或 张三" /></div>
+      <div class="field"><label for="memberDisplayName">成员姓名 <span class="required">*</span></label><input id="memberDisplayName" maxlength="30" required placeholder="例如：张三" /></div>
+      <div class="field"><label for="memberPassword">初始口令 <span class="required">*</span></label><input id="memberPassword" type="text" maxlength="128" minlength="8" required placeholder="至少8位，仅创建时显示" /></div>
+      <div class="member-form-actions"><button class="btn" id="generatePasswordBtn" type="button">生成随机口令</button><button class="btn primary" type="submit">创建成员</button></div>
+    </form>
+    <div class="manage-content">
+      <div class="manage-heading"><strong>成员账号</strong><button class="btn small" id="membersRefreshBtn" type="button">刷新</button></div>
+      <div id="membersList" class="manage-list"></div>
+    </div>
+  </dialog>
+
+  <dialog id="logsDialog" class="manage-dialog" aria-labelledby="logsTitle">
+    <div class="modal-top">
+      <div class="modal-header">
+        <div><div class="modal-title" id="logsTitle">访问记录</div><div class="modal-subtitle">记录登录、公司卡片进入屏幕和复制全部信息的时间</div></div>
+        <button class="close-button" id="logsCloseBtn" type="button" aria-label="关闭">×</button>
+      </div>
+    </div>
+    <div class="manage-content">
+      <div class="manage-heading"><strong>最近访问记录</strong><button class="btn small" id="logsRefreshBtn" type="button">刷新</button></div>
+      <div id="logsList" class="manage-list"></div>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=1.4.0" defer></script>
 </body>
 </html>

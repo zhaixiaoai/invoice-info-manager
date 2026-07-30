@@ -1,14 +1,25 @@
 import { assertAdmin, requireSession } from "../lib/auth.js";
-import { toClient, toDatabase, validUuid, validateCompany } from "../lib/company.js";
+import { companyFingerprint, toClient, toDatabase, validUuid, validateCompany } from "../lib/company.js";
 import { handleError, HttpError, json, methodNotAllowed, readJson } from "../lib/http.js";
 import { supabase, writeAudit } from "../lib/supabase.js";
 
 const selectFields = "id,company_name,tax_no,address,phone,bank_name,bank_account,remark,version,created_at,updated_at,deleted_at,created_by,updated_by";
 
+async function exactMatches(item, excludeId = null) {
+  const query = new URLSearchParams({
+    select: selectFields,
+    tax_no: `eq.${item.taxNo}`,
+    order: "updated_at.desc",
+  });
+  const rows = await supabase(`invoice_companies?${query}`);
+  const target = companyFingerprint(item);
+  return (rows || []).filter((row) => row.id !== excludeId && companyFingerprint(row) === target);
+}
+
 export default {
   async fetch(request) {
     try {
-      const session = requireSession(request);
+      const session = await requireSession(request);
       const url = new URL(request.url);
 
       if (request.method === "GET") {
@@ -27,25 +38,17 @@ export default {
         assertAdmin(session);
         const body = await readJson(request);
         const item = validateCompany(body);
-
-        // 税号在数据库中全局唯一。若同税号记录位于回收站，则按“重新添加”处理：
-        // 恢复原记录并用本次填写内容更新，避免出现数据库唯一键错误。
-        const duplicateQuery = new URLSearchParams({
-          select: selectFields,
-          tax_no: `eq.${item.taxNo}`,
-          limit: "1",
-        });
-        const existingRows = await supabase(`invoice_companies?${duplicateQuery}`);
-        const existing = existingRows?.[0];
-
-        if (existing && !existing.deleted_at) {
-          throw new HttpError(409, "该统一社会信用代码已存在，请勿重复录入；可关闭弹窗后搜索并编辑原记录");
+        const matches = await exactMatches(item);
+        const activeMatch = matches.find((row) => !row.deleted_at);
+        if (activeMatch) {
+          throw new HttpError(409, "这条开票信息与公司列表中的已有记录完全相同，请勿重复保存；任意字段内容不同均可作为新记录添加");
         }
 
-        if (existing?.deleted_at) {
+        const deletedMatch = matches.find((row) => row.deleted_at);
+        if (deletedMatch) {
           const restoreQuery = new URLSearchParams({
-            id: `eq.${existing.id}`,
-            version: `eq.${existing.version}`,
+            id: `eq.${deletedMatch.id}`,
+            version: `eq.${deletedMatch.version}`,
             deleted_at: "not.is.null",
           });
           const rows = await supabase(`invoice_companies?${restoreQuery}`, {
@@ -54,7 +57,7 @@ export default {
             body: {
               ...toDatabase(item),
               deleted_at: null,
-              version: Number(existing.version || 1) + 1,
+              version: Number(deletedMatch.version || 1) + 1,
               updated_by: session.actor,
             },
           });
@@ -83,6 +86,21 @@ export default {
         if (!Number.isInteger(version) || version < 1) throw new HttpError(400, "记录版本无效");
 
         if (body.action === "restore") {
+          const sourceQuery = new URLSearchParams({
+            select: selectFields,
+            id: `eq.${body.id}`,
+            version: `eq.${version}`,
+            deleted_at: "not.is.null",
+            limit: "1",
+          });
+          const sourceRows = await supabase(`invoice_companies?${sourceQuery}`);
+          const source = sourceRows?.[0];
+          if (!source) throw new HttpError(409, "记录已被其他成员修改，请刷新后重试");
+          const matches = await exactMatches(toClient(source), body.id);
+          if (matches.some((row) => !row.deleted_at)) {
+            throw new HttpError(409, "公司列表中已经有一条完全相同的信息，无法重复恢复");
+          }
+
           const query = new URLSearchParams({ id: `eq.${body.id}`, version: `eq.${version}`, deleted_at: "not.is.null" });
           const rows = await supabase(`invoice_companies?${query}`, {
             method: "PATCH",
@@ -95,6 +113,11 @@ export default {
         }
 
         const item = validateCompany(body);
+        const matches = await exactMatches(item, body.id);
+        if (matches.some((row) => !row.deleted_at)) {
+          throw new HttpError(409, "修改后的开票信息与另一条现有记录完全相同，请至少调整一个字段");
+        }
+
         const query = new URLSearchParams({ id: `eq.${body.id}`, version: `eq.${version}`, deleted_at: "is.null" });
         const rows = await supabase(`invoice_companies?${query}`, {
           method: "PATCH",
