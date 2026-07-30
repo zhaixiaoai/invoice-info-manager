@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light" />
   <title>公司开票信息管理</title>
-  <link rel="stylesheet" href="/styles.css?v=1.5.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.6.0" />
 </head>
 <body>
   <main class="page" id="appPage" hidden>
@@ -49,6 +49,8 @@
   </main>
 
   <section class="login-screen" id="loginScreen">
+    <canvas class="login-grid-scan" id="loginGridScan" aria-hidden="true"></canvas>
+    <div class="login-grid-vignette" aria-hidden="true"></div>
     <div class="login-card">
       <div class="login-icon">票</div>
       <h2>公司开票信息管理</h2>
@@ -148,6 +150,7 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=1.5.0" defer></script>
+  <script src="/login-grid.js?v=1.6.0" defer></script>
+  <script src="/app.js?v=1.6.0" defer></script>
 </body>
 </html>
