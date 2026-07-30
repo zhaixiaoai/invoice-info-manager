@@ -1,9 +1,9 @@
 {
   "name": "invoice-info-manager",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "公司开票信息多人共享管理工具（独立成员账号与访问审计）",
+  "description": "公司开票信息多人共享管理工具（成员分级查看权限与访问审计）",
   "engines": {
     "node": ">=20"
   },

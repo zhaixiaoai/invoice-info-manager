@@ -10,6 +10,9 @@
   let currentRole = "viewer";
   let viewObserver = null;
   const viewLoggedIds = new Set();
+  let permissionMemberId = null;
+  let permissionCompanies = [];
+  let permissionSelectedIds = new Set();
 
   const $ = (id) => document.getElementById(id);
   const appPage = $("appPage"), loginScreen = $("loginScreen"), loginForm = $("loginForm");
@@ -18,6 +21,9 @@
   const syncText = $("syncText"), importFile = $("importFile"), viewBanner = $("viewBanner"), viewBannerText = $("viewBannerText");
   const membersDialog = $("membersDialog"), memberForm = $("memberForm"), memberError = $("memberError"), membersList = $("membersList");
   const logsDialog = $("logsDialog"), logsList = $("logsList");
+  const permissionsDialog = $("permissionsDialog"), permissionsForm = $("permissionsForm");
+  const permissionsError = $("permissionsError"), permissionCompanyPanel = $("permissionCompanyPanel");
+  const permissionCompanyList = $("permissionCompanyList"), permissionSearch = $("permissionSearch"), permissionSummary = $("permissionSummary");
   const fields = {
     companyName: $("companyName"), taxNo: $("taxNo"), address: $("address"), phone: $("phone"),
     bankName: $("bankName"), bankAccount: $("bankAccount"), remark: $("remark"),
@@ -458,7 +464,10 @@
       membersList.innerHTML = '<div class="manage-empty">还没有共享成员，请在上方创建第一个成员账号。</div>';
       return;
     }
-    membersList.innerHTML = members.map((member) => `<div class="manage-row" data-member-id="${member.id}"><div class="manage-main"><div class="manage-title">${escapeHtml(member.displayName)} <span class="account-text">账号：${escapeHtml(member.username)}</span></div><div class="manage-meta">状态：<span class="status-text ${member.active ? "active" : "disabled"}">${member.active ? "在职可用" : "已停用"}</span> · 最近登录：${formatTime(member.lastLoginAt, true)}</div></div><div class="manage-actions"><button class="btn small" data-member-action="reset" data-id="${member.id}">重置口令</button><button class="btn small ${member.active ? "danger" : "restore"}" data-member-action="toggle" data-id="${member.id}" data-active="${member.active ? "1" : "0"}">${member.active ? "停用账号" : "重新启用"}</button></div></div>`).join("");
+    membersList.innerHTML = members.map((member) => {
+      const permissionText = member.accessAll ? "全部公司" : `指定 ${member.permissionCount || 0} 家公司`;
+      return `<div class="manage-row" data-member-id="${member.id}"><div class="manage-main"><div class="manage-title">${escapeHtml(member.displayName)} <span class="account-text">账号：${escapeHtml(member.username)}</span></div><div class="manage-meta">状态：<span class="status-text ${member.active ? "active" : "disabled"}">${member.active ? "在职可用" : "已停用"}</span> · 查看权限：<strong>${escapeHtml(permissionText)}</strong> · 最近登录：${formatTime(member.lastLoginAt, true)}</div></div><div class="manage-actions"><button class="btn small" data-member-action="permissions" data-id="${member.id}" data-name="${escapeHtml(member.displayName)}">设置查看权限</button><button class="btn small" data-member-action="reset" data-id="${member.id}">重置口令</button><button class="btn small ${member.active ? "danger" : "restore"}" data-member-action="toggle" data-id="${member.id}" data-active="${member.active ? "1" : "0"}">${member.active ? "停用账号" : "重新启用"}</button></div></div>`;
+    }).join("");
   }
 
   membersList.addEventListener("click", async (event) => {
@@ -467,6 +476,10 @@
     const action = button.dataset.memberAction;
     const id = button.dataset.id;
     try {
+      if (action === "permissions") {
+        await openPermissions(id, button.dataset.name || "成员");
+        return;
+      }
       if (action === "toggle") {
         const currentlyActive = button.dataset.active === "1";
         const wording = currentlyActive ? "停用后，该成员所有已登录设备会立即失效。确定停用吗？" : "确定重新启用该成员账号吗？";
@@ -490,6 +503,131 @@
       }
     } catch (error) {
       showMemberError(error.message);
+    }
+  });
+
+
+  function showPermissionsError(message = "") {
+    permissionsError.textContent = message;
+    permissionsError.hidden = !message;
+    if (message) permissionsDialog.scrollTop = 0;
+  }
+
+  function permissionModeIsAll() {
+    return $("permissionAll").checked;
+  }
+
+  function normalizePermissionSearch(value = "") {
+    return String(value).trim().toLowerCase().replace(/\s+/g, "");
+  }
+
+  function filteredPermissionCompanies() {
+    const query = normalizePermissionSearch(permissionSearch.value);
+    if (!query) return permissionCompanies;
+    return permissionCompanies.filter((company) => normalizePermissionSearch([
+      company.companyName, company.taxNo, company.address, company.bankName, company.bankAccount,
+    ].join(" ")).includes(query));
+  }
+
+  function updatePermissionSummary() {
+    permissionSummary.textContent = `已选择 ${permissionSelectedIds.size} 家公司，共 ${permissionCompanies.length} 家可分配`;
+  }
+
+  function renderPermissionCompanies() {
+    const companies = filteredPermissionCompanies();
+    updatePermissionSummary();
+    if (!companies.length) {
+      permissionCompanyList.innerHTML = '<div class="manage-empty">没有找到匹配的公司。</div>';
+      return;
+    }
+    permissionCompanyList.innerHTML = companies.map((company) => `<label class="permission-company-row"><input type="checkbox" data-permission-company-id="${company.id}" ${permissionSelectedIds.has(company.id) ? "checked" : ""} /><span class="permission-company-main"><strong>${escapeHtml(company.companyName)}</strong><small>税号：${escapeHtml(company.taxNo)} · 开户行：${escapeHtml(company.bankName)}</small></span></label>`).join("");
+  }
+
+  function applyPermissionMode() {
+    permissionCompanyPanel.hidden = permissionModeIsAll();
+    if (!permissionModeIsAll()) renderPermissionCompanies();
+  }
+
+  async function openPermissions(memberId, displayName) {
+    permissionMemberId = memberId;
+    permissionCompanies = [];
+    permissionSelectedIds = new Set();
+    showPermissionsError();
+    $("permissionsTitle").textContent = `设置查看权限 · ${displayName}`;
+    $("permissionsSubtitle").textContent = "可设置为查看全部公司，或只查看指定公司；保存后立即生效";
+    permissionCompanyList.innerHTML = '<div class="manage-empty">正在加载公司权限…</div>';
+    permissionSearch.value = "";
+    if (membersDialog.open) membersDialog.close();
+    permissionsDialog.showModal();
+    try {
+      const data = await api(`/api/permissions?memberId=${encodeURIComponent(memberId)}`, { headers: {} });
+      permissionCompanies = data.companies || [];
+      permissionSelectedIds = new Set(data.allowedIds || []);
+      $("permissionAll").checked = Boolean(data.accessAll);
+      $("permissionSelected").checked = !data.accessAll;
+      applyPermissionMode();
+      updatePermissionSummary();
+    } catch (error) {
+      showPermissionsError(error.message);
+    }
+  }
+
+  async function closePermissions({ reopenMembers = true } = {}) {
+    if (permissionsDialog.open) permissionsDialog.close();
+    permissionMemberId = null;
+    permissionCompanies = [];
+    permissionSelectedIds = new Set();
+    if (reopenMembers && isAdmin()) {
+      membersDialog.showModal();
+      await loadMembers();
+    }
+  }
+
+  $("permissionsCloseBtn").addEventListener("click", () => closePermissions());
+  permissionsDialog.addEventListener("cancel", (event) => { event.preventDefault(); closePermissions(); });
+  $("permissionAll").addEventListener("change", applyPermissionMode);
+  $("permissionSelected").addEventListener("change", applyPermissionMode);
+  permissionSearch.addEventListener("input", renderPermissionCompanies);
+  permissionCompanyList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("input[data-permission-company-id]");
+    if (!checkbox) return;
+    if (checkbox.checked) permissionSelectedIds.add(checkbox.dataset.permissionCompanyId);
+    else permissionSelectedIds.delete(checkbox.dataset.permissionCompanyId);
+    updatePermissionSummary();
+  });
+  $("permissionSelectVisibleBtn").addEventListener("click", () => {
+    filteredPermissionCompanies().forEach((company) => permissionSelectedIds.add(company.id));
+    renderPermissionCompanies();
+  });
+  $("permissionClearBtn").addEventListener("click", () => {
+    permissionSelectedIds.clear();
+    renderPermissionCompanies();
+  });
+
+  permissionsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!permissionMemberId) return;
+    showPermissionsError();
+    const saveButton = $("permissionsSaveBtn");
+    saveButton.disabled = true;
+    saveButton.textContent = "正在保存…";
+    try {
+      const accessAll = permissionModeIsAll();
+      await api("/api/permissions", {
+        method: "PATCH",
+        body: JSON.stringify({
+          memberId: permissionMemberId,
+          accessAll,
+          companyIds: accessAll ? [] : [...permissionSelectedIds],
+        }),
+      });
+      showToast(accessAll ? "已设置为可查看全部公司" : `已设置为可查看 ${permissionSelectedIds.size} 家公司`);
+      await closePermissions();
+    } catch (error) {
+      showPermissionsError(error.message);
+    } finally {
+      saveButton.disabled = false;
+      saveButton.textContent = "保存查看权限";
     }
   });
 

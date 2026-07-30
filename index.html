@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light" />
   <title>公司开票信息管理</title>
-  <link rel="stylesheet" href="/styles.css?v=1.4.0" />
+  <link rel="stylesheet" href="/styles.css?v=1.5.0" />
 </head>
 <body>
   <main class="page" id="appPage" hidden>
@@ -106,6 +106,34 @@
     </div>
   </dialog>
 
+
+
+  <dialog id="permissionsDialog" class="manage-dialog" aria-labelledby="permissionsTitle">
+    <div class="modal-top">
+      <div class="modal-header">
+        <div><div class="modal-title" id="permissionsTitle">设置查看权限</div><div class="modal-subtitle" id="permissionsSubtitle">可设置为查看全部公司，或只查看指定公司</div></div>
+        <button class="close-button" id="permissionsCloseBtn" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-error" id="permissionsError" role="alert" aria-live="assertive" hidden></div>
+    </div>
+    <form id="permissionsForm">
+      <div class="permission-mode">
+        <label class="permission-option"><input type="radio" name="permissionMode" id="permissionAll" value="all" checked /><span><strong>查看全部公司</strong><small>当前及以后新增的公司都自动可见</small></span></label>
+        <label class="permission-option"><input type="radio" name="permissionMode" id="permissionSelected" value="selected" /><span><strong>只查看指定公司</strong><small>可随时增加或取消具体公司的权限</small></span></label>
+      </div>
+      <div class="permission-company-panel" id="permissionCompanyPanel" hidden>
+        <div class="permission-toolbar">
+          <input id="permissionSearch" class="permission-search" autocomplete="off" placeholder="搜索公司名称、税号、地址或银行账号" />
+          <button class="btn small" id="permissionSelectVisibleBtn" type="button">勾选搜索结果</button>
+          <button class="btn small" id="permissionClearBtn" type="button">清空已选</button>
+        </div>
+        <div class="permission-summary" id="permissionSummary">已选择 0 家公司</div>
+        <div class="permission-list" id="permissionCompanyList"></div>
+      </div>
+      <div class="modal-footer"><button class="btn primary" id="permissionsSaveBtn" type="submit">保存查看权限</button></div>
+    </form>
+  </dialog>
+
   <dialog id="logsDialog" class="manage-dialog" aria-labelledby="logsTitle">
     <div class="modal-top">
       <div class="modal-header">
@@ -120,6 +148,6 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=1.4.0" defer></script>
+  <script src="/app.js?v=1.5.0" defer></script>
 </body>
 </html>

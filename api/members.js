@@ -3,7 +3,7 @@ import { handleError, HttpError, json, methodNotAllowed, readJson } from "../lib
 import { supabase } from "../lib/supabase.js";
 import { validUuid } from "../lib/company.js";
 
-const memberFields = "id,username,display_name,active,session_version,last_login_at,created_at,updated_at,created_by";
+const memberFields = "id,username,display_name,active,access_all,session_version,last_login_at,created_at,updated_at,created_by";
 
 function cleanUsername(value) {
   const username = String(value || "").trim().slice(0, 30);
@@ -19,12 +19,14 @@ function cleanDisplayName(value, fallback) {
   return displayName;
 }
 
-function toClient(row) {
+function toClient(row, permissionCount = 0) {
   return {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
     active: Boolean(row.active),
+    accessAll: Boolean(row.access_all),
+    permissionCount: Boolean(row.access_all) ? null : Number(permissionCount || 0),
     sessionVersion: Number(row.session_version || 1),
     lastLoginAt: row.last_login_at,
     createdAt: row.created_at,
@@ -45,8 +47,18 @@ export default {
       const session = await requireAdmin(request);
 
       if (request.method === "GET") {
-        const rows = await supabase(`invoice_members?select=${memberFields}&order=created_at.desc`);
-        return json({ members: (rows || []).map(toClient) });
+        const [rows, accessRows, activeCompanies] = await Promise.all([
+          supabase(`invoice_members?select=${memberFields}&order=created_at.desc`),
+          supabase("invoice_member_company_access?select=member_id,company_id"),
+          supabase("invoice_companies?select=id&deleted_at=is.null"),
+        ]);
+        const activeIds = new Set((activeCompanies || []).map((company) => company.id));
+        const counts = new Map();
+        (accessRows || []).forEach((row) => {
+          if (!activeIds.has(row.company_id)) return;
+          counts.set(row.member_id, (counts.get(row.member_id) || 0) + 1);
+        });
+        return json({ members: (rows || []).map((row) => toClient(row, counts.get(row.id) || 0)) });
       }
 
       if (request.method === "POST") {
@@ -70,6 +82,7 @@ export default {
             password_salt: password.salt,
             password_hash: password.hash,
             active: true,
+            access_all: true,
             created_by: session.actor,
           }],
         });

@@ -2,6 +2,7 @@ import { assertAdmin, requireSession } from "../lib/auth.js";
 import { companyFingerprint, toClient, toDatabase, validUuid, validateCompany } from "../lib/company.js";
 import { handleError, HttpError, json, methodNotAllowed, readJson } from "../lib/http.js";
 import { supabase, writeAudit } from "../lib/supabase.js";
+import { allowedCompanyIds } from "../lib/permissions.js";
 
 const selectFields = "id,company_name,tax_no,address,phone,bank_name,bank_account,remark,version,created_at,updated_at,deleted_at,created_by,updated_by";
 
@@ -30,8 +31,17 @@ export default {
           deleted_at: deleted ? "not.is.null" : "is.null",
           order: "updated_at.desc",
         });
+        if (!deleted && session.role !== "admin") {
+          const allowedIds = await allowedCompanyIds(session);
+          if (Array.isArray(allowedIds)) {
+            if (!allowedIds.length) {
+              return json({ records: [], serverTime: new Date().toISOString(), accessLimited: true });
+            }
+            query.set("id", `in.(${allowedIds.join(",")})`);
+          }
+        }
         const rows = await supabase(`invoice_companies?${query}`);
-        return json({ records: (rows || []).map(toClient), serverTime: new Date().toISOString() });
+        return json({ records: (rows || []).map(toClient), serverTime: new Date().toISOString(), accessLimited: session.role !== "admin" && !session.accessAll });
       }
 
       if (request.method === "POST") {
