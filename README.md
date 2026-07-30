@@ -1,36 +1,24 @@
-# 公司开票信息管理（云端多人共享版）
+# 公司开票信息管理（云端多人共享版 v1.3）
 
-这是一个面向团队使用的开票资料管理工具。网页代码部署在 Vercel，正式数据存储在 Supabase Postgres 数据库中。
+网页部署在 Vercel，正式数据存储在 Supabase Postgres 数据库中。
 
-## 功能
+## 权限
 
-- 固定网址，后续更新代码后自动发布新版
-- 多设备共享、每 10 秒自动同步
-- 公司资料新增、编辑、搜索、复制
-- 团队访问口令
-- 操作人记录、并发修改冲突保护
-- 软删除与回收站恢复
-- JSON 备份导入和导出
-- 数据库与网页代码完全分离，更新功能不会覆盖历史资料
+- 管理员：查询、复制、新增、编辑、删除、回收站恢复、导入和导出。
+- 只读成员：查询、刷新和复制有效开票信息。
+- `ADMIN_PASSWORD` 为管理员口令，仅本人保存。
+- `TEAM_PASSWORD` 为共享成员查看口令，可发给需要查看资料的人。
 
-## 部署顺序
+## Vercel 环境变量
 
-1. 创建 Supabase 项目。
-2. 在 Supabase 的 SQL Editor 中运行 `supabase/schema.sql`。
-3. 在 Supabase 的 Settings → API Keys 中创建并复制后端 **Secret key**（`sb_secret_...`）。
-4. 在 Vercel 中导入此 GitHub 仓库。
-5. 配置四个环境变量：
-   - `SUPABASE_URL`
-   - `SUPABASE_SECRET_KEY`
-   - `TEAM_PASSWORD`
-   - `SESSION_SECRET`
-6. 点击 Deploy。部署完成后获得固定网址。
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `TEAM_PASSWORD`
+- `ADMIN_PASSWORD`
+- `SESSION_SECRET`
 
-详细图文式步骤见：[部署说明.md](./部署说明.md)
+`ADMIN_PASSWORD` 与 `TEAM_PASSWORD` 必须不同，且都至少 8 位。
 
-## 安全说明
+## 更新说明
 
-- `SUPABASE_SECRET_KEY` 只能放在 Vercel 环境变量中，不能写进代码、网页或聊天截图。
-- 数据表已启用 RLS，并撤销匿名访问权限；浏览器只能通过受团队口令保护的服务器接口访问。
-- GitHub 仓库可以公开，但 `.env` 和真实密钥绝不能提交。
-- 删除操作是软删除，可从回收站恢复。
+上传替换 GitHub 仓库中的同名文件后，Vercel 会自动部署。数据库独立保存在 Supabase，正常更新代码不会清空历史数据。本次更新无需重新执行 `supabase/schema.sql`。

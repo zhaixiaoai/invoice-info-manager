@@ -5,6 +5,6 @@ export default {
   async fetch(request) {
     if (request.method !== "GET") return methodNotAllowed(["GET"]);
     const session = verifySession(request);
-    return json(session ? { authenticated: true, actor: session.actor } : { authenticated: false });
+    return json(session ? { authenticated: true, actor: session.actor, role: session.role } : { authenticated: false });
   },
 };

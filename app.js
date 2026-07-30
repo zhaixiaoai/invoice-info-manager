@@ -6,13 +6,16 @@
   let recycleView = false;
   let formDirty = false;
   let pollTimer = null;
+  let currentRole = "viewer";
 
   const $ = (id) => document.getElementById(id);
   const appPage = $("appPage"), loginScreen = $("loginScreen"), loginForm = $("loginForm");
-  const loginError = $("loginError"), editor = $("editor"), form = $("companyForm");
+  const loginError = $("loginError"), editor = $("editor"), form = $("companyForm"), modalError = $("modalError");
   const listEl = $("companyList"), searchInput = $("searchInput"), countText = $("countText");
   const syncText = $("syncText"), importFile = $("importFile"), viewBanner = $("viewBanner"), viewBannerText = $("viewBannerText");
   const fields = { companyName: $("companyName"), taxNo: $("taxNo"), address: $("address"), phone: $("phone"), bankName: $("bankName"), bankAccount: $("bankAccount"), remark: $("remark") };
+
+  function isAdmin() { return currentRole === "admin"; }
 
   async function api(path, options = {}) {
     const response = await fetch(path, { credentials: "same-origin", ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -22,13 +25,34 @@
     return payload;
   }
 
-  function showLogin() { clearInterval(pollTimer); appPage.hidden = true; loginScreen.hidden = false; loginScreen.style.display = "grid"; }
-  function showApp(actor) { $("currentActor").textContent = `当前成员：${actor}`; loginScreen.hidden = true; loginScreen.style.display = "none"; appPage.hidden = false; startPolling(); }
+  function showLogin() {
+    clearInterval(pollTimer);
+    currentRole = "viewer";
+    recycleView = false;
+    appPage.hidden = true;
+    loginScreen.hidden = false;
+    loginScreen.style.display = "grid";
+  }
+
+  function applyPermissions() {
+    document.querySelectorAll("[data-admin-only]").forEach((element) => { element.hidden = !isAdmin(); });
+    if (!isAdmin()) recycleView = false;
+  }
+
+  function showApp(actor, role) {
+    currentRole = role === "admin" ? "admin" : "viewer";
+    $("currentActor").textContent = `当前成员：${actor} · ${isAdmin() ? "管理员" : "只读成员"}`;
+    applyPermissions();
+    loginScreen.hidden = true;
+    loginScreen.style.display = "none";
+    appPage.hidden = false;
+    startPolling();
+  }
 
   async function init() {
     try {
       const session = await api("/api/session", { headers: {} });
-      if (session.authenticated) { showApp(session.actor); await loadRecords(); } else showLogin();
+      if (session.authenticated) { showApp(session.actor, session.role); await loadRecords(); } else showLogin();
     } catch { showLogin(); }
   }
 
@@ -37,7 +61,7 @@
     const button = loginForm.querySelector("button"); button.disabled = true; button.textContent = "正在验证…";
     try {
       const result = await api("/api/login", { method: "POST", body: JSON.stringify({ actor: $("actorInput").value, password: $("passwordInput").value }) });
-      $("passwordInput").value = ""; showApp(result.actor); await loadRecords();
+      $("passwordInput").value = ""; showApp(result.actor, result.role); await loadRecords();
     } catch (error) { loginError.textContent = error.message; }
     finally { button.disabled = false; button.textContent = "进入管理工具"; }
   });
@@ -51,6 +75,7 @@
   window.addEventListener("focus", () => { if (!appPage.hidden) loadRecords(true); });
 
   async function loadRecords(silent = false) {
+    if (!isAdmin() && recycleView) recycleView = false;
     if (!silent) syncText.textContent = "正在同步…";
     try {
       const data = await api(`/api/companies?deleted=${recycleView ? 1 : 0}`, { headers: {} });
@@ -68,74 +93,121 @@
     const filtered = filteredRecords();
     countText.textContent = searchInput.value.trim() ? `找到${filtered.length}家公司` : `${recycleView ? "回收站共" : "共"}${records.length}家公司`;
     viewBanner.hidden = false;
-    viewBannerText.textContent = recycleView ? "当前正在查看回收站，删除的数据仍保存在云数据库中。" : "当前正在查看公司列表。";
+    viewBannerText.textContent = recycleView
+      ? "当前正在查看回收站，删除的数据仍保存在云数据库中。"
+      : isAdmin()
+        ? "当前正在查看公司列表。"
+        : "当前正在查看公司列表（只读模式，可查询和复制开票信息）。";
     $("backBtn").textContent = recycleView ? "返回公司列表" : "查看回收站";
-    $("trashBtn").hidden = recycleView; $("addBtn").disabled = recycleView;
+    $("backBtn").hidden = !isAdmin();
+    $("trashBtn").hidden = !isAdmin() || recycleView;
+    $("addBtn").hidden = !isAdmin();
+
     if (!filtered.length) {
-      listEl.innerHTML = `<div class="empty-state"><div class="empty-symbol">票</div><h2 class="empty-title">${recycleView ? "回收站为空" : records.length ? "没有找到匹配的公司" : "还没有录入开票信息"}</h2><p class="empty-desc">${recycleView ? "删除的公司资料会暂时保留在这里。" : records.length ? "请尝试更换公司名称、税号或银行关键词。" : "点击右上角「新增开票信息」开始录入。"}</p></div>`;
+      listEl.innerHTML = `<div class="empty-state"><div class="empty-symbol">票</div><h2 class="empty-title">${recycleView ? "回收站为空" : records.length ? "没有找到匹配的公司" : "还没有录入开票信息"}</h2><p class="empty-desc">${recycleView ? "删除的公司资料会暂时保留在这里。" : records.length ? "请尝试更换公司名称、税号或银行关键词。" : isAdmin() ? "点击右上角「新增开票信息」开始录入。" : "暂无可查看的开票信息。"}</p></div>`;
       return;
     }
-    listEl.innerHTML = filtered.map((item) => `<article class="company-card"><div class="card-head"><div><div class="company-name">${escapeHtml(item.companyName)}</div><div class="record-meta">${escapeHtml(item.updatedBy ? `最近由 ${item.updatedBy} 更新 · ` : "")}${formatTime(item.updatedAt)}</div></div><div class="actions">${recycleView ? `<button class="btn small restore" data-action="restore" data-id="${item.id}">恢复</button>` : `<button class="btn small" data-action="edit" data-id="${item.id}">编辑</button><button class="btn small danger" data-action="delete" data-id="${item.id}">删除</button>`}</div></div><div class="info-list">${row("税号",item.taxNo)}${row("地址",item.address)}${row("电话",item.phone)}${row("开户行",item.bankName)}${row("银行账号",item.bankAccount)}${row("备注",item.remark)}</div>${recycleView ? "" : `<div class="card-footer"><button class="btn small" data-action="copy" data-id="${item.id}">复制全部信息</button></div>`}</article>`).join("");
+
+    listEl.innerHTML = filtered.map((item) => {
+      const actions = isAdmin()
+        ? recycleView
+          ? `<button class="btn small restore" data-action="restore" data-id="${item.id}">恢复</button>`
+          : `<button class="btn small" data-action="edit" data-id="${item.id}">编辑</button><button class="btn small danger" data-action="delete" data-id="${item.id}">删除</button>`
+        : "";
+      return `<article class="company-card"><div class="card-head"><div><div class="company-name">${escapeHtml(item.companyName)}</div><div class="record-meta">${escapeHtml(item.updatedBy ? `最近由 ${item.updatedBy} 更新 · ` : "")}${formatTime(item.updatedAt)}</div></div><div class="actions">${actions}</div></div><div class="info-list">${row("税号",item.taxNo)}${row("地址",item.address)}${row("电话",item.phone)}${row("开户行",item.bankName)}${row("银行账号",item.bankAccount)}${row("备注",item.remark)}</div>${recycleView ? "" : `<div class="card-footer"><button class="btn small" data-action="copy" data-id="${item.id}">复制全部信息</button></div>`}</article>`;
+    }).join("");
   }
+
   function row(label, value) { return `<div class="info-row"><div class="info-label">${label}</div><div class="info-value">${value ? escapeHtml(value) : '<span class="unfilled">未填写</span>'}</div></div>`; }
 
   listEl.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]"); if (!button) return;
     const item = records.find((r) => r.id === button.dataset.id); if (!item) return;
     const action = button.dataset.action;
+    if (action === "copy") return copyRecord(item);
+    if (!isAdmin()) return showToast("当前账号为只读权限");
     if (action === "edit") openEditor(item);
     if (action === "delete") deleteRecord(item);
     if (action === "restore") restoreRecord(item);
-    if (action === "copy") copyRecord(item);
   });
 
+  function clearModalError() { modalError.textContent = ""; modalError.hidden = true; }
+  function showModalError(message) { modalError.textContent = message; modalError.hidden = false; editor.scrollTo({ top: 0, behavior: "smooth" }); }
+
   function openEditor(record = null) {
+    if (!isAdmin()) return showToast("当前账号为只读权限");
     editingId = record?.id || null; editingVersion = record?.version || null; formDirty = false;
+    clearModalError();
     $("modalTitle").textContent = record ? "编辑开票信息" : "新增开票信息";
     Object.keys(fields).forEach((key) => fields[key].value = record?.[key] || "");
     editor.showModal(); setTimeout(() => fields.companyName.focus(), 40);
   }
-  function closeEditor() { editor.close(); form.reset(); editingId = null; editingVersion = null; formDirty = false; }
+  function closeEditor() { editor.close(); form.reset(); clearModalError(); editingId = null; editingVersion = null; formDirty = false; }
   $("addBtn").addEventListener("click", () => openEditor());
   $("closeBtn").addEventListener("click", () => { if (!formDirty || confirm("当前填写内容尚未保存，确定关闭吗？")) closeEditor(); });
   editor.addEventListener("cancel", (event) => event.preventDefault());
-  form.addEventListener("input", () => formDirty = true);
+  form.addEventListener("input", () => { formDirty = true; clearModalError(); });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!isAdmin()) return showModalError("当前账号为只读权限，不能保存信息");
     const payload = Object.fromEntries(Object.entries(fields).map(([key, element]) => [key, element.value.trim()]));
     if (editingId) { payload.id = editingId; payload.version = editingVersion; }
     const saveBtn = $("saveBtn"); saveBtn.disabled = true; saveBtn.textContent = "正在保存…";
     try {
-      await api("/api/companies", { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      closeEditor(); await loadRecords(); showToast("已保存并同步到云端");
-    } catch (error) { showToast(error.status === 409 ? `${error.message}，已为你刷新列表` : error.message); if (error.status === 409) await loadRecords(); }
+      clearModalError();
+      const result = await api("/api/companies", { method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      closeEditor(); await loadRecords(); showToast(result.restored ? "已恢复原记录并同步到云端" : "已保存并同步到云端");
+    } catch (error) {
+      showModalError(error.message);
+      if (error.status === 409 && editingId) await loadRecords();
+    }
     finally { saveBtn.disabled = false; saveBtn.textContent = "保存信息"; }
   });
 
   async function deleteRecord(item) {
+    if (!isAdmin()) return showToast("当前账号为只读权限");
     if (!confirm(`确定将“${item.companyName}”移入回收站吗？\n资料不会立即永久删除，可在回收站恢复。`)) return;
     try { await api("/api/companies", { method:"DELETE", body:JSON.stringify({ id:item.id, version:item.version }) }); await loadRecords(); showToast("已移入回收站"); } catch (error) { showToast(error.message); await loadRecords(true); }
   }
+
   async function restoreRecord(item) {
+    if (!isAdmin()) return showToast("当前账号为只读权限");
     try { await api("/api/companies", { method:"PATCH", body:JSON.stringify({ id:item.id, version:item.version, action:"restore" }) }); await loadRecords(); showToast("公司资料已恢复"); } catch (error) { showToast(error.message); }
   }
+
   async function copyRecord(item) {
-    const text = [`公司名称：${item.companyName}`,`纳税人识别号：${item.taxNo}`,`注册地址：${item.address}`,`注册电话：${item.phone || ""}`,`开户银行：${item.bankName}`,`银行账号：${item.bankAccount}`,item.remark ? `备注：${item.remark}` : ""].filter(Boolean).join("\n");
+    const text = [
+      `公司名称：${item.companyName}`,
+      `纳税人识别号：${item.taxNo}`,
+      `注册地址：${item.address}`,
+      item.phone ? `注册电话：${item.phone}` : "",
+      `开户银行：${item.bankName}`,
+      `银行账号：${item.bankAccount}`,
+      item.remark ? `备注：${item.remark}` : "",
+    ].filter(Boolean).join("\n");
     try { await navigator.clipboard.writeText(text); showToast("已复制全部开票信息"); } catch { showToast("复制失败，请手动选择文本"); }
   }
 
   searchInput.addEventListener("input", render);
   $("refreshBtn").addEventListener("click", () => loadRecords());
-  $("trashBtn").addEventListener("click", async () => { recycleView = true; searchInput.value = ""; await loadRecords(); });
-  $("backBtn").addEventListener("click", async () => { recycleView = false; searchInput.value = ""; await loadRecords(); });
+  $("trashBtn").addEventListener("click", async () => {
+    if (!isAdmin()) return showToast("当前账号为只读权限");
+    recycleView = true; searchInput.value = ""; await loadRecords();
+  });
+  $("backBtn").addEventListener("click", async () => {
+    if (!isAdmin()) return showToast("当前账号为只读权限");
+    recycleView = !recycleView; searchInput.value = ""; await loadRecords();
+  });
 
   $("exportBtn").addEventListener("click", async () => {
+    if (!isAdmin()) return showToast("当前账号为只读权限");
     try { const data = await api("/api/export", { headers: {} }); const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"}); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`开票信息云端备份_${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); showToast("云端备份已导出"); } catch(error){ showToast(error.message); }
   });
-  $("importBtn").addEventListener("click", () => importFile.click());
+
+  $("importBtn").addEventListener("click", () => { if (isAdmin()) importFile.click(); else showToast("当前账号为只读权限"); });
   importFile.addEventListener("change", async () => {
-    const file=importFile.files?.[0]; importFile.value=""; if(!file) return;
+    const file=importFile.files?.[0]; importFile.value=""; if(!file || !isAdmin()) return;
     try { const data=JSON.parse(await file.text()); const count=Array.isArray(data)?data.length:(data.records?.length||0); if(!confirm(`将导入 ${count} 条资料；相同税号会更新为备份中的内容。是否继续？`)) return; const result=await api("/api/import",{method:"POST",body:JSON.stringify(data)}); recycleView=false; await loadRecords(); showToast(`成功导入 ${result.imported} 条资料`); } catch(error){ showToast(error.message || "导入失败，请检查备份格式"); }
   });
 

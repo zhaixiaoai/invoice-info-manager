@@ -1,4 +1,4 @@
-import { requireSession } from "../lib/auth.js";
+import { requireAdmin } from "../lib/auth.js";
 import { toDatabase, validateCompany } from "../lib/company.js";
 import { handleError, HttpError, json, methodNotAllowed, readJson } from "../lib/http.js";
 import { supabase } from "../lib/supabase.js";
@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase.js";
 export default {
   async fetch(request) {
     try {
-      const session = requireSession(request);
+      const session = requireAdmin(request);
       if (request.method !== "POST") return methodNotAllowed(["POST"]);
       const body = await readJson(request, 4_000_000);
       const source = Array.isArray(body) ? body : body.records;
