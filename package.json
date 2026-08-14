@@ -1,13 +1,14 @@
 {
   "name": "invoice-info-manager",
-  "version": "1.5.0",
+  "version": "1.9.1",
   "private": true,
   "type": "module",
-  "description": "公司开票信息多人共享管理工具（成员分级查看权限与访问审计）",
+  "description": "公司开票信息多人共享管理工具（Vercel + 腾讯云 CloudBase 双部署兼容版）",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev": "vercel dev"
+    "dev": "vercel dev",
+    "start": "node server.js"
   }
 }
